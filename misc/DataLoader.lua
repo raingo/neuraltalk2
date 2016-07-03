@@ -1,30 +1,47 @@
 require 'hdf5'
+require 'base64'
+require 'image'
+
 local utils = require 'misc.utils'
 
 local DataLoader = torch.class('DataLoader')
 
+local function _decode(buf)
+  AA = base64.decode(buf)
+  AAA = torch.ByteStorage():string(AA)
+  AAAA = torch.ByteTensor(AAA)
+  img = image.decompressJPG(AAAA)
+  return img
+end
+
 function DataLoader:__init(opt)
-  
+
   -- load the json file which contains additional information about the dataset
   print('DataLoader loading json file: ', opt.json_file)
   self.info = utils.read_json(opt.json_file)
   self.ix_to_word = self.info.ix_to_word
   self.vocab_size = utils.count_keys(self.ix_to_word)
   print('vocab size is ' .. self.vocab_size)
-  
+
   -- open the hdf5 file
   print('DataLoader loading h5 file: ', opt.h5_file)
   self.h5_file = hdf5.open(opt.h5_file, 'r')
-  
+
   -- extract image size from dataset
   local images_size = self.h5_file:read('/images'):dataspaceSize()
-  assert(#images_size == 4, '/images should be a 4D tensor')
-  assert(images_size[3] == images_size[4], 'width and height must match')
+  assert(#images_size == 1, '/images should be a 1D string tensor')
+
+  local buf = self.h5_file:read('/images'):partial({1,1})
+  local img = _decode(buf)
+
+  assert(img:size(3) == img:size(2), 'width and height must match')
+
   self.num_images = images_size[1]
-  self.num_channels = images_size[2]
-  self.max_image_size = images_size[3]
-  print(string.format('read %d images of size %dx%dx%d', self.num_images, 
-            self.num_channels, self.max_image_size, self.max_image_size))
+  self.num_channels = img:size(1)
+  self.max_image_size = img:size(2)
+
+  print(string.format('read %d images of size %dx%dx%d', self.num_images,
+  self.num_channels, self.max_image_size, self.max_image_size))
 
   -- load in the sequence data
   local seq_size = self.h5_file:read('/labels'):dataspaceSize()
@@ -33,7 +50,7 @@ function DataLoader:__init(opt)
   -- load the pointers in full to RAM (should be small enough)
   self.label_start_ix = self.h5_file:read('/label_start_ix'):all()
   self.label_end_ix = self.h5_file:read('/label_end_ix'):all()
-  
+
   -- separate out indexes for each of the provided splits
   self.split_ix = {}
   self.iterators = {}
@@ -68,12 +85,12 @@ function DataLoader:getSeqLength()
 end
 
 --[[
-  Split is a string identifier (e.g. train|val|test)
-  Returns a batch of data:
-  - X (N,3,H,W) containing the images
-  - y (L,M) containing the captions as columns (which is better for contiguous memory during training)
-  - info table of length N, containing additional information
-  The data is iterated linearly in order. Iterators for any split can be reset manually with resetIterator()
+Split is a string identifier (e.g. train|val|test)
+Returns a batch of data:
+- X (N,3,H,W) containing the images
+- y (L,M) containing the captions as columns (which is better for contiguous memory during training)
+- info table of length N, containing additional information
+The data is iterated linearly in order. Iterators for any split can be reset manually with resetIterator()
 --]]
 function DataLoader:getBatch(opt)
   local split = utils.getopt(opt, 'split') -- lets require that user passes this in, for safety
@@ -99,8 +116,8 @@ function DataLoader:getBatch(opt)
     assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
     -- fetch the image from h5
-    local img = self.h5_file:read('/images'):partial({ix,ix},{1,self.num_channels},
-                            {1,self.max_image_size},{1,self.max_image_size})
+    local buf = self.h5_file:read('/images'):partial({ix,ix})
+    local img = _decode(buf)
     img_batch_raw[i] = img
 
     -- fetch the sequence labels
@@ -138,4 +155,3 @@ function DataLoader:getBatch(opt)
   data.infos = infos
   return data
 end
-
