@@ -26,12 +26,14 @@ function DataLoader:__init(opt)
   -- open the hdf5 file
   print('DataLoader loading h5 file: ', opt.h5_file)
   self.h5_file = hdf5.open(opt.h5_file, 'r')
+  self.h5_images = self.h5_file:read('/images')
+  self.h5_labels = self.h5_file:read('/labels')
 
   -- extract image size from dataset
-  local images_size = self.h5_file:read('/images'):dataspaceSize()
+  local images_size = self.h5_images:dataspaceSize()
   assert(#images_size == 1, '/images should be a 1D string tensor')
 
-  local buf = self.h5_file:read('/images'):partial({1,1})
+  local buf = self.h5_images:partial({1,1})
   local img = _decode(buf)
 
   assert(img:size(3) == img:size(2), 'width and height must match')
@@ -44,7 +46,7 @@ function DataLoader:__init(opt)
   self.num_channels, self.max_image_size, self.max_image_size))
 
   -- load in the sequence data
-  local seq_size = self.h5_file:read('/labels'):dataspaceSize()
+  local seq_size = self.h5_labels:dataspaceSize()
   self.seq_length = seq_size[2]
   print('max sequence length in data is ' .. self.seq_length)
   -- load the pointers in full to RAM (should be small enough)
@@ -116,7 +118,7 @@ function DataLoader:getBatch(opt)
     assert(ix ~= nil, 'bug: split ' .. split .. ' was accessed out of bounds with ' .. ri)
 
     -- fetch the image from h5
-    local buf = self.h5_file:read('/images'):partial({ix,ix})
+    local buf = self.h5_images:partial({ix,ix})
     local img = _decode(buf)
     img_batch_raw[i] = img
 
@@ -131,12 +133,12 @@ function DataLoader:getBatch(opt)
       seq = torch.LongTensor(seq_per_img, self.seq_length)
       for q=1, seq_per_img do
         local ixl = torch.random(ix1,ix2)
-        seq[{ {q,q} }] = self.h5_file:read('/labels'):partial({ixl, ixl}, {1,self.seq_length})
+        seq[{ {q,q} }] = self.h5_labels:partial({ixl, ixl}, {1,self.seq_length})
       end
     else
       -- there is enough data to read a contiguous chunk, but subsample the chunk position
       local ixl = torch.random(ix1, ix2 - seq_per_img + 1) -- generates integer in the range
-      seq = self.h5_file:read('/labels'):partial({ixl, ixl+seq_per_img-1}, {1,self.seq_length})
+      seq = self.h5_labels:partial({ixl, ixl+seq_per_img-1}, {1,self.seq_length})
     end
     local il = (i-1)*seq_per_img+1
     label_batch[{ {il,il+seq_per_img-1} }] = seq

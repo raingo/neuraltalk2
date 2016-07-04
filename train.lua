@@ -1,5 +1,6 @@
 
 require 'torch'
+require 'hdf5'
 require 'nn'
 require 'nngraph'
 -- exotic things
@@ -395,7 +396,10 @@ while true do
 
   -- stopping criterions
   iter = iter + 1
-  if iter % 10 == 0 then collectgarbage() end -- good idea to do this once in a while, i think
+  if iter % 10 == 0 then
+    collectgarbage()
+    collectgarbage()
+  end -- good idea to do this once in a while, i think
   if loss0 == nil then loss0 = losses.total_loss end
   if losses.total_loss > loss0 * 20 then
     print('loss seems to be exploding, quitting.')
